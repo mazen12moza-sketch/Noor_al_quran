@@ -1,0 +1,20 @@
+{
+  "name": "نور القرآن — Noor Al-Quran",
+  "short_name": "نور القرآن",
+  "description": "تطبيق القرآن الكريم: تلاوة، تفسير، مواقيت الصلاة، القبلة والأذكار",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F332D",
+  "theme_color": "#0f3d35",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    { "src": "icons/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
