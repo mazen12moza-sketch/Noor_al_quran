@@ -11,7 +11,7 @@
 // string is what makes the "activate" step below wipe the old cache and pull
 // fresh files for every visitor automatically — no need for anyone to clear
 // their browser data manually.
-const CACHE_NAME = 'noor-alquran-shell-v7';
+const CACHE_NAME = 'noor-alquran-shell-v8';
 const SHELL_FILES = [
   './',
   './index.html',
