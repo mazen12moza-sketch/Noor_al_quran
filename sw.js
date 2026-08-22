@@ -10,7 +10,7 @@
    text saves itself automatically in the background. Bump SHELL_CACHE's
    version suffix whenever this app is updated so old shells get replaced. */
 
-const SHELL_CACHE = 'noor-shell-v1';
+const SHELL_CACHE = 'noor-shell-v8';
 const SHELL_FILES = [
   './',
   './index.html',
