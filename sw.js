@@ -7,7 +7,7 @@
 // "noor-audio-v1") through explicit user actions (the "Download the full
 // Quran" button, "Download this surah audio", etc).
 
-const SHELL_CACHE = 'noor-shell-v1';
+const SHELL_CACHE = 'noor-shell-v10';
 const SHELL_FILES = [
   './',
   './index.html',
