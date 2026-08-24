@@ -1994,7 +1994,7 @@ body[data-bg="7"]{background-image:url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3
     const fromEmail = document.getElementById('feedbackEmail').value.trim();
     if(!text){ toast(state.lang==='ar'?'اكتب ملاحظتك الأول':'Write your feedback first'); return; }
     // NOTE: replace this placeholder with the real destination email before publishing.
-    const to = 'mazen12moza@gmail.com';
+    const to = 'mazen11moza@gmail.com';
     const subject = encodeURIComponent(state.lang==='ar' ? 'ملاحظة على تطبيق نور القرآن' : 'Feedback on Noor Al-Quran');
     const body = encodeURIComponent(text + (fromEmail ? `\n\n${state.lang==='ar'?'الرد على':'Reply to'}: ${fromEmail}` : ''));
     window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
