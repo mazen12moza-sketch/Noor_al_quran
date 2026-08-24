@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mazen12moza-sketch.github.io/Noor_al_quran/sitemap.xml
