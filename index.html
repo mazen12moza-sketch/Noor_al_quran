@@ -185,7 +185,8 @@ body[data-lang="en"] .mini-card .value{font-family:var(--font-en-display);}
 .ayah-block.target-flash{border-color:var(--gold); box-shadow:0 0 0 2px var(--gold);}
 .ayah-block.ayah-playing{background:rgba(184,134,11,.16); border-color:var(--gold); box-shadow:0 0 0 2px var(--gold); transition:background .25s, box-shadow .25s;}
 .ayah-inline.ayah-playing{background:rgba(184,134,11,.28); border-radius:6px; box-shadow:0 0 0 1px var(--gold); transition:background .25s;}
-.ayah-num-badge{display:inline-flex; width:24px; height:24px; border-radius:50%; background:var(--emerald); color:#fff; font-size:11px; align-items:center; justify-content:center; margin-inline-start:8px; font-family:var(--font-en-body);}
+.ayah-num-badge{display:inline-flex; width:24px; height:24px; border-radius:50%; background:var(--emerald); color:#fff; font-size:11px; align-items:center; justify-content:center; font-family:var(--font-en-body);}
+.ayah-num-badge-row{text-align:center; margin-top:6px;}
 .ayah-arabic{font-family:var(--font-ar-display); font-size:calc(24px * var(--quran-font-scale, 1)); line-height:2.3; text-align:justify;}
 .ayah-translation{font-size:13.5px; color:var(--ink-soft); margin-top:8px; display:none;}
 .ayah-translation.show{display:block;}
@@ -2244,13 +2245,28 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
     goToPage('quran');
     goToPage('reader');
     document.getElementById('ayahContainer').innerHTML = '<div class="spinner"></div>';
+    const ayahInSurah = targetAyahNumberInSurah || 1;
     try{
-      const ref = `${surahNumber}:${targetAyahNumberInSurah || 1}`;
+      const ref = `${surahNumber}:${ayahInSurah}`;
       const res = await fetch(`https://api.alquran.cloud/v1/ayah/${ref}/${quranEdition()}`).then(r=>r.json());
       const pageNum = res.data.page;
-      await openMushafPage(pageNum, {highlightSurah:surahNumber, highlightAyah: targetAyahNumberInSurah || 1});
+      await openMushafPage(pageNum, {highlightSurah:surahNumber, highlightAyah: ayahInSurah});
     }catch(err){
-      document.getElementById('ayahContainer').innerHTML = `<p class="muted">تعذّر تحديد صفحة المصحف — تحقق من الاتصال بالإنترنت.</p>`;
+      // No internet (or the API is unreachable): this used to just fail even
+      // when the full Quran was already downloaded, because it never checked
+      // that offline copy — only pages you'd personally opened before ever
+      // worked offline. Now it looks up the page number for ANY surah from
+      // the already-downloaded full Quran data, so opening a surah straight
+      // from the index (e.g. Al-Baqarah) works offline too, not just ones
+      // you happened to visit while online.
+      try{
+        const flat = await getFullQuranEdition(quranEdition());
+        const found = flat.find(a=> a.surah.number===surahNumber && a.numberInSurah===ayahInSurah);
+        if(!found) throw new Error('not-found-offline');
+        await openMushafPage(found.page, {highlightSurah:surahNumber, highlightAyah: ayahInSurah});
+      }catch(err2){
+        document.getElementById('ayahContainer').innerHTML = `<p class="muted ar-only">تعذّر تحديد صفحة المصحف. اتأكد إنك ضغطت "تحميل القرآن كاملاً" مرة وأنت متصل بالنت، أو تحقق من اتصالك الآن.</p><p class="muted en-only">Could not locate this page. Make sure you've pressed "Download the full Quran" once while online, or check your connection now.</p>`;
+      }
     }
   }
 
@@ -2344,7 +2360,7 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
           const block = document.createElement('div');
           block.className = 'ayah-block';
           block.id = `ayah-${ayah.surah.number}-${ayah.numberInSurah}`;
-          block.innerHTML = `<div class="ayah-arabic">${ayah.text} <span class="ayah-num-badge">${ayah.numberInSurah}</span></div><div class="ayah-translation" data-idx="${i}">${enAyah ? enAyah.text : ''}</div>`;
+          block.innerHTML = `<div class="ayah-arabic">${ayah.text}</div><div class="ayah-num-badge-row"><span class="ayah-num-badge">${ayah.numberInSurah}</span></div><div class="ayah-translation" data-idx="${i}">${enAyah ? enAyah.text : ''}</div>`;
           block.onclick = (ev)=>{ if(ev.target.closest('.ayah-translation')) return; openAyahModal(surahLike, ayah, enAyah, tafAyah, i); };
           box.appendChild(block);
         }
@@ -2683,12 +2699,36 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
     renderAiMessages();
     try{
       const payload = { messages: aiChatHistory.slice(0,-1).map(m=>({role:m.role, content:m.content})), context: aiPendingContext };
-      const res = await fetch(AI_PROXY_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }).then(r=>r.json());
+      const controller = new AbortController();
+      const timeoutId = setTimeout(()=>controller.abort(), 20000);
+      const res = await fetch(AI_PROXY_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), signal: controller.signal });
+      clearTimeout(timeoutId);
+      let data = null, rawText = '';
+      try{ rawText = await res.text(); data = JSON.parse(rawText); }catch(parseErr){ /* not JSON */ }
       aiChatHistory.pop();
-      aiChatHistory.push({role:'assistant', content: res.reply || (state.lang==='ar'?'تعذّر الرد الآن':'Could not get a reply right now')});
+      if(!res.ok){
+        // Surface the REAL failure (status + whatever the server sent back)
+        // instead of a generic message — this is what actually tells you
+        // whether the Worker is deployed, misconfigured, or rejecting CORS,
+        // since I can't reach your private backend to check it myself.
+        const detail = (data && (data.error || data.message)) || rawText.slice(0,200) || res.statusText;
+        aiChatHistory.push({role:'assistant', content: state.lang==='ar'
+          ? `تعذّر الرد — الخادم رجّع خطأ (${res.status}): ${detail}`
+          : `Could not get a reply — server returned an error (${res.status}): ${detail}`});
+      } else if(data && data.reply){
+        aiChatHistory.push({role:'assistant', content: data.reply});
+      } else {
+        aiChatHistory.push({role:'assistant', content: state.lang==='ar'
+          ? `الخادم رد لكن من غير النص المتوقع (حقل "reply"). الرد الخام: ${rawText.slice(0,200) || '(فاضي)'}`
+          : `The server replied but without the expected "reply" field. Raw response: ${rawText.slice(0,200) || '(empty)'}`});
+      }
     }catch(e){
       aiChatHistory.pop();
-      aiChatHistory.push({role:'assistant', content: state.lang==='ar'?'حصل خطأ في الاتصال بالمساعد':'Error reaching the assistant'});
+      const isAbort = e && e.name === 'AbortError';
+      const isNetwork = e instanceof TypeError; // fetch throws TypeError on network/CORS failure
+      aiChatHistory.push({role:'assistant', content: state.lang==='ar'
+        ? (isAbort ? 'الخادم ما ردّش في الوقت المناسب (٢٠ ثانية) — جرّب تاني.' : (isNetwork ? 'تعذّر الوصول للخادم — تأكد إن الرابط شغّال وإنه بيسمح بطلبات CORS من موقعك.' : `خطأ غير متوقع: ${e.message||e}`))
+        : (isAbort ? 'The server did not respond in time (20s) — try again.' : (isNetwork ? "Could not reach the server — make sure the URL is live and allows CORS requests from your site." : `Unexpected error: ${e.message||e}`))});
     }
     renderAiMessages();
   }
@@ -3427,21 +3467,22 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
      on its own.
 
      Two modes:
-     - "جلسة الأذكار" (Session): the classic dhikr-after-prayer cycle — 33×
-       SubhanAllah, 33× Alhamdulillah, 33× Allahu Akbar, then Salah upon the
-       Prophet ﷺ once — a full session of 100. Advances phrase automatically,
-       and logs a completed session (with the exact breakdown) once it hits
-       100.
+     - "جلسة الأذكار" (Session): cycles through السبحان الله / الحمد لله /
+       الله أكبر — each ONE "جلسة" (session) is 33 taps of that phrase — then
+       الصلاة على النبي ﷺ, whose own session is 100 taps (a separate cycle,
+       not summed together with the 33s). Finishing any phrase's target
+       auto-advances to the next and logs one completed session.
      - "عبارات حرة" (Free): the original free-count phrases, unchanged.
-     Both modes feed the same "تسبيحات اليوم" (today's tap count) stat;
-     completed sessions feed "جلسات اليوم" and the sessions history list. */
+     Both modes feed "تسبيحات اليوم" (today's tap count). Completing a phrase
+     cycle (33 or 100) feeds "جلسات اليوم" (resets every day) AND "إجمالي
+     الجلسات" (a lifetime total that never resets, across all your usage of
+     the app) — plus the sessions history list below. */
   const TASBIH_SESSION_PHRASES = [
     {ar:'سبحان الله', en:'SubhanAllah', target:33},
     {ar:'الحمد لله', en:'Alhamdulillah', target:33},
     {ar:'الله أكبر', en:'Allahu Akbar', target:33},
-    {ar:'اللهم صلِّ وسلِّم على نبينا محمد', en:'Salah upon the Prophet ﷺ', target:1},
+    {ar:'اللهم صلِّ وسلِّم على نبينا محمد', en:'Salah upon the Prophet ﷺ', target:100},
   ];
-  const TASBIH_SESSION_TOTAL = TASBIH_SESSION_PHRASES.reduce((s,p)=>s+p.target,0); // 100
   const TASBIH_FREE_PHRASES = [
     {ar:'سبحان الله', en:'SubhanAllah'},
     {ar:'الحمد لله', en:'Alhamdulillah'},
@@ -3457,15 +3498,22 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
     await storeSet('tasbihDailyTaps', log);
   }
   async function tasbihLogSessionDone(){
-    const log = (await storeGet('tasbihDailySessions')) || {};
+    // Today's count (resets daily) AND the lifetime total (persists forever,
+    // across however long you've been using the app) are both incremented
+    // together, every time a phrase's own cycle (33, or 100 for the Salah)
+    // is completed.
+    const daily = (await storeGet('tasbihDailySessions')) || {};
     const key = tasbihDayKey();
-    log[key] = (log[key]||0) + 1;
-    await storeSet('tasbihDailySessions', log);
+    daily[key] = (daily[key]||0) + 1;
+    await storeSet('tasbihDailySessions', daily);
+    const totalSoFar = (await storeGet('tasbihTotalSessions')) || 0;
+    await storeSet('tasbihTotalSessions', totalSoFar + 1);
   }
   async function tasbihTodayStats(){
     const taps = ((await storeGet('tasbihDailyTaps')) || {})[tasbihDayKey()] || 0;
     const sessions = ((await storeGet('tasbihDailySessions')) || {})[tasbihDayKey()] || 0;
-    return {taps, sessions};
+    const totalSessions = (await storeGet('tasbihTotalSessions')) || 0;
+    return {taps, sessions, totalSessions};
   }
   async function openTasbihModal(){
     let mode = 'session';
@@ -3479,10 +3527,10 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
       <div class="wird-stat-row" style="margin-bottom:12px;">
         <div class="wird-stat"><b id="tasbihStatTaps">0</b><span class="ar-only">تسبيحات اليوم</span><span class="en-only">Today's tasbihat</span></div>
         <div class="wird-stat"><b id="tasbihStatSessions">0</b><span class="ar-only">جلسات اليوم</span><span class="en-only">Today's sessions</span></div>
-        <div class="wird-stat"><b id="tasbihStatSessionTotal">0/${TASBIH_SESSION_TOTAL}</b><span class="ar-only">إجمالي الجلسة</span><span class="en-only">Session total</span></div>
+        <div class="wird-stat"><b id="tasbihStatTotalSessions">0</b><span class="ar-only">إجمالي الجلسات</span><span class="en-only">Total sessions</span></div>
       </div>
       <div class="azkar-tabs" id="tasbihModeTabs">
-        <button class="azkar-tab active" data-mode="session"><span class="ar-only">جلسة الأذكار (١٠٠)</span><span class="en-only">Dhikr session (100)</span></button>
+        <button class="azkar-tab active" data-mode="session"><span class="ar-only">جلسة الأذكار</span><span class="en-only">Dhikr session</span></button>
         <button class="azkar-tab" data-mode="free"><span class="ar-only">عبارات حرة</span><span class="en-only">Free count</span></button>
       </div>
       <div id="tasbihModeBody"></div>
@@ -3506,8 +3554,7 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
       const s = await tasbihTodayStats();
       document.getElementById('tasbihStatTaps').textContent = s.taps;
       document.getElementById('tasbihStatSessions').textContent = s.sessions;
-      const sessionTotalNow = mode==='session' ? session.counts.reduce((a,b)=>a+b,0) : 0;
-      document.getElementById('tasbihStatSessionTotal').textContent = `${sessionTotalNow}/${TASBIH_SESSION_TOTAL}`;
+      document.getElementById('tasbihStatTotalSessions').textContent = s.totalSessions;
     }
     async function renderSessionsHistory(){
       const log = ((await storeGet('tasbihSessionsLog')) || []).slice().reverse(); // last session first, back to the first
@@ -3516,13 +3563,14 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
       box.innerHTML = log.map((rec,i)=>{
         const dt = new Date(rec.completedAt);
         const timeLabel = dt.toLocaleString(state.lang==='ar'?'ar-EG':'en-US', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+        const phraseLabel = state.lang==='ar' ? rec.phraseAr : rec.phraseEn;
         return `<div class="mini-card" data-hist="${i}" style="margin-bottom:8px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span class="value" style="font-size:13px;">${timeLabel}</span>
-            <span class="muted" style="font-size:12px;">${TASBIH_SESSION_TOTAL}/${TASBIH_SESSION_TOTAL} ✓</span>
+            <span class="muted" style="font-size:12px;">${rec.target}/${rec.target} ✓</span>
           </div>
           <div class="hist-detail" data-detail="${i}" style="display:none; margin-top:8px; font-size:12.5px; line-height:1.9;">
-            ${TASBIH_SESSION_PHRASES.map((p,pi)=>`<div>${rec.counts[pi]}× ${state.lang==='ar'?p.ar:p.en}</div>`).join('')}
+            ${rec.target}× ${phraseLabel}
           </div>
         </div>`;
       }).join('');
@@ -3541,7 +3589,7 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
         <div style="text-align:center;">
           <div class="tasbih-counter" id="tasbihCounter"><div class="num" id="tasbihNum">${session.counts[session.phraseIdx]}</div><div class="cap" id="tasbihPhraseLabel">${state.lang==='ar'?cur.ar:cur.en}</div></div>
           <div class="muted" style="font-size:12.5px; margin-top:-8px;" id="tasbihPhraseProgress">${session.counts[session.phraseIdx]} / ${cur.target}</div>
-          <button class="btn btn-ghost btn-sm" id="tasbihSessionReset" style="margin-top:8px;">↺ <span class="ar-only">إعادة الجلسة</span><span class="en-only">Reset session</span></button>
+          <button class="btn btn-ghost btn-sm" id="tasbihSessionReset" style="margin-top:8px;">↺ <span class="ar-only">إعادة الجلسة الحالية</span><span class="en-only">Reset current session</span></button>
         </div>`;
       const tabs = document.getElementById('tasbihSessionPhraseTabs');
       tabs.innerHTML = TASBIH_SESSION_PHRASES.map((p,i)=>{
@@ -3558,25 +3606,24 @@ body[dir="ltr"] .switch input:checked + .slider:before{transform:translateX(18px
         session.counts[session.phraseIdx]++;
         playClick(); if(navigator.vibrate) navigator.vibrate(10);
         await tasbihLogTap();
-        if(session.counts[session.phraseIdx] >= phrase.target && session.phraseIdx < TASBIH_SESSION_PHRASES.length-1){
-          session.phraseIdx++;
-          toast(state.lang==='ar'?'أحسنت — العبارة التالية':'Well done — next phrase');
-        } else if(session.counts[session.phraseIdx] >= phrase.target && session.phraseIdx === TASBIH_SESSION_PHRASES.length-1){
-          // Session complete — log it, then start a fresh one.
-          const record = {completedAt: new Date().toISOString(), date: tasbihDayKey(), counts: session.counts.slice()};
+        if(session.counts[session.phraseIdx] >= phrase.target){
+          // This phrase's own cycle (33, or 100 for the Salah) is complete —
+          // that's one full "جلسة" on its own, logged right away.
+          const record = {completedAt: new Date().toISOString(), date: tasbihDayKey(), phraseAr: phrase.ar, phraseEn: phrase.en, target: phrase.target};
           const log = (await storeGet('tasbihSessionsLog')) || [];
           log.push(record);
           await storeSet('tasbihSessionsLog', log);
           await tasbihLogSessionDone();
-          toast(state.lang==='ar'?`🎉 أتممت جلسة الـ${TASBIH_SESSION_TOTAL}!`:`🎉 Completed a session of ${TASBIH_SESSION_TOTAL}!`);
-          session = {phraseIdx:0, counts:[0,0,0,0]};
+          toast(state.lang==='ar'?`🎉 أتممت جلسة ${phrase.ar} (${phrase.target})`:`🎉 Completed a ${phrase.en} session (${phrase.target})`);
+          session.phraseIdx = (session.phraseIdx + 1) % TASBIH_SESSION_PHRASES.length;
+          session.counts[session.phraseIdx] = 0;
           renderSessionsHistory();
         }
         await storeSet('tasbihSession', session);
         renderSessionBody(); refreshStatsRow();
       };
       document.getElementById('tasbihSessionReset').onclick = async ()=>{
-        session = {phraseIdx:0, counts:[0,0,0,0]};
+        session.counts[session.phraseIdx] = 0;
         await storeSet('tasbihSession', session);
         renderSessionBody(); refreshStatsRow();
       };
