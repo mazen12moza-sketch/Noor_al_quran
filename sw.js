@@ -13,7 +13,7 @@
 // before.
 // =================================================================
 
-const CACHE_NAME = 'noor-app-shell-v3'; // bump this number any time you want to force everyone onto a clean copy
+const CACHE_NAME = 'noor-app-shell-v27'; // bump this number any time you want to force everyone onto a clean copy
 
 self.addEventListener('install', () => {
   self.skipWaiting(); // activate the new version immediately, don't wait for old tabs to close
