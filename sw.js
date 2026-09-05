@@ -13,7 +13,7 @@
 // before.
 // =================================================================
 
-const CACHE_NAME = 'noor-app-shell-v28'; // bump this number any time you want to force everyone onto a clean copy
+const CACHE_NAME = 'noor-app-shell-v29'; // bump this number any time you want to force everyone onto a clean copy
 
 // Firebase's SDK + the app's web fonts come from a different domain
 // (gstatic.com / googleapis.com), not this site. They're cached
